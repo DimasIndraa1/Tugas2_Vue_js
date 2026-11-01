@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tracking Delivery Order - Universitas Terbuka</title>
+  <link rel="icon" href="img/logo-ut.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body>
+  <div id="app" v-cloak>
+
+    <header class="navbar">
+      <div class="nav-brand-wrap">
+        <img src="img/logo-ut.svg" alt="Logo Universitas Terbuka" class="brand-logo-img">
+        <div class="brand-title-group">
+          <span class="brand-institution">Universitas Terbuka</span>
+          <span class="brand-portal">Portal Pengelolaan dan Distribusi Bahan Ajar</span>
+        </div>
+      </div>
+
+      <nav class="nav-links" aria-label="Navigasi utama">
+        <a href="index.html" class="nav-item">Beranda</a>
+        <a href="stok.html" class="nav-item">Stok Bahan Ajar</a>
+        <a href="tracking.html" class="nav-item active" aria-current="page">Tracking DO</a>
+      </nav>
+
+      <div class="nav-action-wrap">
+        <a href="stok.html" class="btn-pill-dark">Lihat stok bahan ajar</a>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="editorial-header">
+        <div>
+          <div class="section-eyebrow-lockup">
+            <span class="eyebrow-bar" aria-hidden="true"></span>
+            <span class="eyebrow-text">Pelacakan Pengiriman Logistik</span>
+          </div>
+          <h1>{{ title }}</h1>
+          <p>{{ subtitle }}</p>
+        </div>
+        <div class="editorial-status-note">
+          <span class="status-note-label">Arsip DO</span>
+          <strong class="status-note-value">{{ allOrdersList.length }} dokumen</strong>
+          <span class="status-note-sub">Dokumen pengiriman terdaftar</span>
+        </div>
+      </section>
+
+      <div
+        v-if="toastMessage"
+        :class="['alert-banner', toastType === 'success' ? 'alert-success' : toastType === 'danger' ? 'alert-danger' : 'alert-info']"
+        role="status"
+        aria-live="polite"
+      >
+        <span>{{ toastMessage }}</span>
+        <button type="button" class="modal-close-btn" aria-label="Tutup notifikasi" @click="toastMessage = ''">&times;</button>
+      </div>
+
+      <section class="editorial-box">
+        <div class="section-eyebrow-lockup">
+          <span class="eyebrow-bar" aria-hidden="true"></span>
+          <span class="eyebrow-text">Pencarian Status Pengiriman</span>
+        </div>
+
+        <div class="search-row">
+          <label class="sr-only" for="search-do">Nomor DO atau NIM mahasiswa</label>
+          <input
+            id="search-do"
+            type="search"
+            class="form-control"
+            v-model="searchDoNumber"
+            placeholder="Masukkan nomor DO atau NIM, misalnya DO2025-0001"
+            @keyup.enter="searchTracking(searchDoNumber)"
+          >
+          <button type="button" class="btn-pill-dark" @click="searchTracking(searchDoNumber)">
+            Lacak pengiriman
+          </button>
+        </div>
+
+        <div class="quick-select-row">
+          <span class="quick-select-label">Contoh DO</span>
+          <button
+            v-for="doKey in Object.keys(trackingData)"
+            :key="doKey"
+            type="button"
+            :class="['btn-sm', activeTrackingResult && activeTrackingResult.nomorDO === doKey ? 'btn-pill-dark' : 'btn-pill-outline']"
+            @click="selectQuickDO(doKey)"
+          >
+            {{ doKey }}
+          </button>
+        </div>
+
+        <div v-if="searchNotFound" class="alert-banner alert-danger" role="alert" style="margin-top: 16px;">
+          Nomor DO atau NIM <strong>{{ searchDoNumber }}</strong> tidak ditemukan.
+        </div>
+      </section>
+
+      <section v-if="activeTrackingResult" class="editorial-box">
+        <div class="tracking-summary">
+          <div>
+            <div class="tracking-heading">
+              <span class="code-pill">{{ activeTrackingResult.nomorDO }}</span>
+              <span :class="['status-badge', statusClass(activeTrackingResult.status)]">
+                {{ activeTrackingResult.status }}
+              </span>
+            </div>
+            <h2>{{ activeTrackingResult.nama }}</h2>
+            <p class="tracking-meta">
+              NIM <strong>{{ activeTrackingResult.nim }}</strong> &middot;
+              Ekspedisi <strong>{{ activeTrackingResult.ekspedisi }}</strong> &middot;
+              Tanggal kirim <strong>{{ activeTrackingResult.tanggalKirim }}</strong>
+              <template v-if="activeTrackingResult.upbjj">
+                &middot; UPBJJ <strong>{{ activeTrackingResult.upbjj }}</strong>
+              </template>
+            </p>
+          </div>
+
+          <div class="tracking-total">
+            <span class="metric-label">Total Biaya</span>
+            <strong>{{ formatRupiah(activeTrackingResult.total) }}</strong>
+            <span class="tracking-paket">Paket {{ activeTrackingResult.paket }}</span>
+          </div>
+        </div>
+
+        <div v-if="activeTrackingResult.alamat" class="tracking-address">
+          <strong>Alamat tujuan</strong>
+          <span>{{ activeTrackingResult.alamat }}</span>
+        </div>
+
+        <div class="section-eyebrow-lockup">
+          <span class="eyebrow-bar" aria-hidden="true"></span>
+          <span class="eyebrow-text">Riwayat Perjalanan Ekspedisi</span>
+        </div>
+
+        <div class="timeline-stream">
+          <div
+            v-for="(step, index) in activeTrackingResult.perjalanan"
+            :key="index"
+            class="timeline-item"
+            :class="{
+              active: index === activeTrackingResult.perjalanan.length - 1 && activeTrackingResult.status !== 'Terkirim',
+              completed: activeTrackingResult.status === 'Terkirim' || index < activeTrackingResult.perjalanan.length - 1
+            }"
+          >
+            <div class="timeline-dot" aria-hidden="true"></div>
+            <div class="timeline-time">{{ step.waktu }}</div>
+            <div class="timeline-desc">{{ step.keterangan }}</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="editorial-box">
+        <div class="section-eyebrow-lockup">
+          <span class="eyebrow-bar" aria-hidden="true"></span>
+          <span class="eyebrow-text">Pemesanan Delivery Order Baru</span>
+        </div>
+        <p class="section-intro">
+          Lengkapi data mahasiswa dan paket. Nomor DO dibuat otomatis setelah formulir dikirim.
+        </p>
+
+        <form @submit.prevent="submitNewOrder" autocomplete="off" novalidate>
+          <div class="form-grid">
+            <div class="filter-group">
+              <label class="filter-label" for="do-nim">NIM Mahasiswa <span class="required-mark">*</span></label>
+              <input
+                id="do-nim"
+                type="text"
+                inputmode="numeric"
+                class="form-control"
+                :class="{ 'is-invalid': orderErrors.nim }"
+                v-model="newOrder.nim"
+                placeholder="Contoh: 041928374"
+                maxlength="12"
+              >
+              <p v-if="orderErrors.nim" class="invalid-feedback">{{ orderErrors.nim }}</p>
+            </div>
+
+            <div class="filter-group">
+              <label class="filter-label" for="do-nama">Nama Lengkap <span class="required-mark">*</span></label>
+              <input
+                id="do-nama"
+                type="text"
+                class="form-control"
+                :class="{ 'is-invalid': orderErrors.nama }"
+                v-model="newOrder.nama"
+                placeholder="Contoh: Dimas Nurindra"
+              >
+              <p v-if="orderErrors.nama" class="invalid-feedback">{{ orderErrors.nama }}</p>
+            </div>
+
+            <div class="filter-group">
+              <label class="filter-label" for="do-paket">Paket Bahan Ajar <span class="required-mark">*</span></label>
+              <select
+                id="do-paket"
+                class="form-control"
+                :class="{ 'is-invalid': orderErrors.paketKode }"
+                v-model="newOrder.paketKode"
+              >
+                <option value="">Pilih paket</option>
+                <option v-for="paket in paketList" :key="paket.kode" :value="paket.kode">
+                  {{ paket.kode }} - {{ paket.nama }} ({{ formatRupiah(paket.harga) }})
+                </option>
+              </select>
+              <p v-if="orderErrors.paketKode" class="invalid-feedback">{{ orderErrors.paketKode }}</p>
+            </div>
+
+            <div class="filter-group">
+              <label class="filter-label" for="do-ekspedisi">Jenis Ekspedisi <span class="required-mark">*</span></label>
+              <select
+                id="do-ekspedisi"
+                class="form-control"
+                :class="{ 'is-invalid': orderErrors.ekspedisiKode }"
+                v-model="newOrder.ekspedisiKode"
+              >
+                <option value="">Pilih layanan</option>
+                <option v-for="ekspedisi in pengirimanList" :key="ekspedisi.kode" :value="ekspedisi.kode">
+                  {{ ekspedisi.nama }} - {{ formatRupiah(ekspedisi.ongkir) }}
+                </option>
+              </select>
+              <p v-if="orderErrors.ekspedisiKode" class="invalid-feedback">{{ orderErrors.ekspedisiKode }}</p>
+            </div>
+
+            <div class="filter-group">
+              <label class="filter-label" for="do-upbjj">Sentra Distribusi <span class="required-mark">*</span></label>
+              <select
+                id="do-upbjj"
+                class="form-control"
+                :class="{ 'is-invalid': orderErrors.upbjj }"
+                v-model="newOrder.upbjj"
+              >
+                <option value="">Pilih sentra distribusi</option>
+                <option v-for="upbjj in upbjjList" :key="upbjj" :value="upbjj">
+                  UT-Daerah {{ upbjj }}
+                </option>
+              </select>
+              <p v-if="orderErrors.upbjj" class="invalid-feedback">{{ orderErrors.upbjj }}</p>
+            </div>
+
+            <div class="filter-group form-group-full">
+              <label class="filter-label" for="do-alamat">Alamat Tujuan <span class="required-mark">*</span></label>
+              <input
+                id="do-alamat"
+                type="text"
+                class="form-control"
+                :class="{ 'is-invalid': orderErrors.alamat }"
+                v-model="newOrder.alamat"
+                placeholder="Jalan, nomor, RT/RW, kota, provinsi"
+              >
+              <p v-if="orderErrors.alamat" class="invalid-feedback">{{ orderErrors.alamat }}</p>
+            </div>
+          </div>
+
+          <div class="order-total-strip">
+            <p>
+              Paket <strong>{{ selectedPaketDetail ? selectedPaketDetail.nama : 'Belum dipilih' }}</strong>
+              &middot; Harga <strong>{{ formatRupiah(selectedPaketDetail ? selectedPaketDetail.harga : 0) }}</strong>
+              &middot; Ongkir <strong>{{ formatRupiah(selectedOngkir) }}</strong>
+            </p>
+            <p class="order-total">
+              Total <strong>{{ formatRupiah(computedTotalOrder) }}</strong>
+            </p>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn-pill-outline" @click="resetOrderForm">
+              Bersihkan isian
+            </button>
+            <button type="submit" class="btn-pill-dark">
+              Terbitkan delivery order
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="editorial-box">
+        <div class="table-heading">
+          <div class="section-eyebrow-lockup">
+            <span class="eyebrow-bar" aria-hidden="true"></span>
+            <span class="eyebrow-text">Arsip Delivery Order</span>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="editorial-table">
+            <caption class="sr-only">Arsip seluruh delivery order bahan ajar</caption>
+            <thead>
+              <tr>
+                <th scope="col">Nomor DO</th>
+                <th scope="col">NIM</th>
+                <th scope="col">Nama Mahasiswa</th>
+                <th scope="col">Paket</th>
+                <th scope="col">Ekspedisi</th>
+                <th scope="col">Tanggal Kirim</th>
+                <th scope="col" class="text-right">Total Biaya</th>
+                <th scope="col" class="text-center">Status</th>
+                <th scope="col" class="text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="order in allOrdersList" :key="order.nomorDO">
+                <td><span class="code-pill">{{ order.nomorDO }}</span></td>
+                <td class="num-cell">{{ order.nim }}</td>
+                <td><strong>{{ order.nama }}</strong></td>
+                <td><span class="category-tag">{{ order.paket }}</span></td>
+                <td>{{ order.ekspedisi }}</td>
+                <td class="num-cell muted">{{ order.tanggalKirim }}</td>
+                <td class="text-right num-cell">{{ formatRupiah(order.total) }}</td>
+                <td class="text-center">
+                  <span :class="['status-badge', statusClass(order.status)]">{{ order.status }}</span>
+                </td>
+                <td class="text-center">
+                  <button type="button" class="btn-pill-outline btn-sm" @click="selectQuickDO(order.nomorDO)">
+                    Lacak
+                  </button>
+                </td>
+              </tr>
+
+              <tr v-if="allOrdersList.length === 0">
+                <td colspan="9" class="table-empty-state">
+                  <h3>Belum ada delivery order</h3>
+                  <p>Terbitkan pesanan pertama melalui formulir di atas.</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-content">
+        <div class="footer-brand">
+          <img src="img/logo-ut.svg" alt="Logo Universitas Terbuka" class="brand-logo-img footer-logo">
+          <span>Universitas Terbuka &middot; Sistem Pemesanan dan Logistik Bahan Ajar</span>
+        </div>
+        <p>Dimas Nurindra NIM 054720663</p>
+      </div>
+    </footer>
+  </div>
+
+  <script src="js/dataBahanAjar.js"></script>
+  <script src="js/tracking-app.js"></script>
+</body>
+</html>
